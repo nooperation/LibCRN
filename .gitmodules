@@ -1,0 +1,4 @@
+[submodule "ThirdParty/crunch"]
+	path = ThirdParty/crunch
+	url = https://github.com/nooperation/crunch.git
+	branch = unity_memory
