@@ -10,8 +10,8 @@ struct ConversionOptions
 
 struct ImageProperties
 {
-  std::size_t width;
-  std::size_t height;
+  uint32_t width;
+  uint32_t height;
 };
 
 extern "C"
