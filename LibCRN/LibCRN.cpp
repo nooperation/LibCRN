@@ -59,15 +59,11 @@ bool ConvertCrnInMemory(
   _In_ std::size_t inCrnBytesSize,
   _In_ ConversionOptions options,
   _Out_opt_ unsigned char **outBuff,
-  _Out_opt_ std::size_t* outBuffSize,
-  _Out_opt_ ImageProperties *outImageProperties)
+  _Out_opt_ std::size_t* outBuffSize)
 {
   console::disable_output();
 
-  auto status = convert_file(inCrnBytes, inCrnBytesSize, outBuff, *outBuffSize, texture_file_types::cFormatPNG);
-
-  outImageProperties->height = 0;
-  outImageProperties->width = 0;
+  auto status = convert_file(inCrnBytes, inCrnBytesSize, outBuff, *outBuffSize, static_cast<texture_file_types::format>(options.conversionType));
 
   return status;
 }
