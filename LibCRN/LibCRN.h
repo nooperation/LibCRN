@@ -6,12 +6,7 @@
 
 struct ConversionOptions
 {
-};
-
-struct ImageProperties
-{
-  uint32_t width;
-  uint32_t height;
+  int32_t conversionType;
 };
 
 extern "C"
@@ -21,8 +16,7 @@ extern "C"
     _In_ std::size_t inCrnBytesSize,
     _In_ ConversionOptions options,
     _Out_opt_ unsigned char **outBuff,
-    _Out_opt_ std::size_t *outBuffSize,
-    _Out_opt_ ImageProperties *outImageProperties
+    _Out_opt_ std::size_t *outBuffSize
   );
 
   DllExport const char *GetError();
