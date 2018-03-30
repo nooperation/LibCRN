@@ -14,7 +14,7 @@
 
 using namespace crnlib;
 
-bool convert_file(unsigned const char *in_buff, const std::size_t in_buff_size, unsigned char **out_buff, std::size_t &out_buff_size, texture_file_types::format out_file_type);
+bool convert_file(const uint8_t *in_buff, const std::size_t in_buff_size, uint8_t **out_buff, std::size_t &out_buff_size, texture_file_types::format out_file_type);
 
 enum class MemoryType {
   kMemoryType_Single,
@@ -22,10 +22,10 @@ enum class MemoryType {
 };
 
 std::mutex memoryMapMutex;
-std::unordered_map<const void *, MemoryType> memoryMap;
-static thread_local std::string _errorMessage = "";
+std::unordered_map<const uint8_t*, MemoryType> memoryMap;
+static thread_local std::string _errorMessage;
 
-void FreeMemory(_In_ const unsigned char *data)
+void FreeMemory(_In_ const uint8_t *data)
 {
   std::lock_guard<std::mutex> lock(memoryMapMutex);
 
@@ -55,10 +55,10 @@ const char *GetError()
 }
 
 bool ConvertCrnInMemory(
-  _In_ const unsigned char *inCrnBytes,
+  _In_ const uint8_t *inCrnBytes,
   _In_ std::size_t inCrnBytesSize,
   _In_ ConversionOptions options,
-  _Out_opt_ unsigned char **outBuff,
+  _Out_opt_ uint8_t **outBuff,
   _Out_opt_ std::size_t* outBuffSize)
 {
   console::disable_output();
@@ -69,7 +69,7 @@ bool ConvertCrnInMemory(
 }
 
 
-bool convert_file(unsigned const char *in_buff, const std::size_t in_buff_size, unsigned char **out_buff, std::size_t &out_buff_size, texture_file_types::format out_file_type)
+bool convert_file(const uint8_t *in_buff, const std::size_t in_buff_size, uint8_t **out_buff, std::size_t &out_buff_size, texture_file_types::format out_file_type)
 {
   mipmapped_texture src_tex;
 
@@ -106,5 +106,49 @@ bool convert_file(unsigned const char *in_buff, const std::size_t in_buff_size, 
   *out_buff = params.m_out_buff;
   out_buff_size = params.m_out_buff_size;
 
+  {
+    std::lock_guard<std::mutex> lock(memoryMapMutex);
+    memoryMap[*out_buff] = MemoryType::kMemoryType_Array;
+  }
+
   return success;
 }
+
+#ifdef CONSOLE_DEBUG
+#include <filesystem>
+#include <iostream>
+#include <vector>
+#include <cstdint>
+
+int main()
+{
+  static const std::string kInputFile = "binary2.crn";
+
+  if (!std::experimental::filesystem::exists(kInputFile))
+  {
+    printf("Missing file\n");
+    return 1;
+  }
+
+  std::experimental::filesystem::path crn_path(kInputFile);
+  const auto file_size = std::experimental::filesystem::file_size(crn_path);
+
+  auto *crn_bytes = new uint8_t[file_size];
+  std::ifstream in_file(crn_path.string().c_str(), std::ios::beg | std::ios::binary);
+  in_file.read(reinterpret_cast<char *>(crn_bytes), file_size);
+  in_file.close();
+
+  uint8_t *out_buff;
+  std::size_t out_buff_size;
+  convert_file(crn_bytes, file_size, &out_buff, out_buff_size, texture_file_types::format::cFormatJPEG);
+  delete[] crn_bytes;
+
+  std::ofstream out_file("out.jpg", std::ios::binary);
+  out_file.write(reinterpret_cast<char *>(out_buff), out_buff_size);
+  out_file.close();
+
+  FreeMemory(out_buff);
+
+  return 0;
+}
+#endif
