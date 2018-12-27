@@ -3,8 +3,6 @@
 #include <memory>
 #include <unordered_map>
 #include <mutex>
-#include <fstream>
-#include <filesystem>
 
 #include "LibCRN.h"
 
@@ -87,9 +85,10 @@ bool ConvertCrnInMemory(
 {
   console::disable_output();
 
+  auto crn_header = crnd::crnd_get_header(inCrnBytes, inCrnBytesSize);
   auto format = static_cast<texture_file_types::format>(options.conversionType);
 
-  if (numLevels > 0)
+  if (crn_header->m_flags & crnd::cCRNHeaderFlagSegmented)
   {
     return convert_file_segmented(
       inCrnBytes,
@@ -158,18 +157,21 @@ bool convert_file(const uint8_t *in_buff, const std::size_t in_buff_size, uint8_
   return success;
 }
 
-bool convert_file_segmented(const uint8_t *in_buff, const std::size_t in_buff_size, uint8_t **out_buff, std::size_t &out_buff_size, texture_file_types::format out_file_type, uint8_t **segments, std::size_t num_segments)
+bool convert_file_segmented(
+  const uint8_t *in_buff,
+  const std::size_t in_buff_size,
+  uint8_t **out_buff,
+  std::size_t &out_buff_size,
+  texture_file_types::format out_file_type,
+  uint8_t **level_segments,
+  std::size_t num_level_segments)
 {
   auto crn_header = crnd::crnd_get_header(in_buff, in_buff_size);
   auto header_size = static_cast<uint>(crn_header->m_data_size);
+  auto level_to_export = num_level_segments;
 
-  if ((crn_header->m_flags & crnd::cCRNHeaderFlagSegmented) == 0)
-  {
-    printf("CRN Is not a segmented file, but a number of segments was specified.\n");
-    return false;
-  }
 
-  if (num_segments >= static_cast<uint>(crn_header->m_levels))
+  if (num_level_segments >= static_cast<uint>(crn_header->m_levels))
   {
     printf("All mip levels are segments. This cannot be recovered.\n");
     return false;
@@ -178,11 +180,13 @@ bool convert_file_segmented(const uint8_t *in_buff, const std::size_t in_buff_si
   // Determine the real size of the crn, including space for missing levels
   auto total_size = in_buff_size;
   auto last_offset = static_cast<uint>(crn_header->m_level_ofs[0]);
-  for (uint32_t i = 1; i < (num_segments + 1); ++i)
+  std::vector<std::size_t> segment_sizes;
+  for (std::size_t level = 1; level < (num_level_segments + 1); ++level)
   {
-    auto previous_level_size = static_cast<uint>(crn_header->m_level_ofs[i]) - last_offset;
+    auto previous_level_size = static_cast<uint>(crn_header->m_level_ofs[level]) - last_offset;
+    segment_sizes.push_back(previous_level_size);
     total_size += previous_level_size;
-    last_offset = static_cast<uint>(crn_header->m_level_ofs[i]);
+    last_offset = static_cast<uint>(crn_header->m_level_ofs[level]);
   }
 
   // Add zero-filled space where missing segments should exist
@@ -191,8 +195,26 @@ bool convert_file_segmented(const uint8_t *in_buff, const std::size_t in_buff_si
 
   memset(complete_crn_bytes_ptr, 0, total_size);
   memcpy(complete_crn_bytes_ptr, in_buff, header_size);
-  complete_crn_bytes_ptr += static_cast<uint>(crn_header->m_level_ofs[num_segments]);
+  complete_crn_bytes_ptr += static_cast<uint>(crn_header->m_level_ofs[num_level_segments]);
   memcpy(complete_crn_bytes_ptr, in_buff + header_size, in_buff_size - header_size);
+
+  // Replace zeroed out levels with user supplied level segment data
+  if (level_segments != nullptr)
+  {
+    for (std::size_t level = 0; level < num_level_segments; ++level)
+    {
+      if (level_segments[level] != nullptr)
+      {
+        auto level_offset = static_cast<uint>(crn_header->m_level_ofs[level]);
+        auto level_size = segment_sizes[level];
+
+        memcpy(&complete_crn_bytes[level_offset], level_segments[level], level_size);
+      }
+    }
+
+    // Just assume if level segments were supplied we're going to be exporting the highest level
+    level_to_export = 0;
+  }
 
   // Read the new crn, which contains zero fill for missing levels
   mipmapped_texture tex;
@@ -210,7 +232,7 @@ bool convert_file_segmented(const uint8_t *in_buff, const std::size_t in_buff_si
     nullptr,
     nullptr,
     0,
-    num_segments
+    level_to_export
   );
 
   if (!is_successful) {
@@ -230,11 +252,41 @@ bool convert_file_segmented(const uint8_t *in_buff, const std::size_t in_buff_si
 #include <iostream>
 #include <vector>
 #include <cstdint>
+#include <fstream>
+
 
 int main()
 {
   static const int num_segments = 5;
   static const std::string kInputFile = "a.crn";
+  static const std::vector<std::string> kLevelSegmentNames = {
+    "a1.crn",
+    "a2.crn",
+    "a3.crn",
+    "a4.crn",
+    "a5.crn",
+  };
+
+  std::vector<uint8_t *> segments;
+  for (const auto &segment_file: kLevelSegmentNames)
+  {
+    if (!std::experimental::filesystem::exists(segment_file))
+    {
+      printf("Missing segment file %s\n", segment_file.c_str());
+      return 1;
+    }
+
+    std::experimental::filesystem::path segment_path(segment_file);
+    const auto segment_size = std::experimental::filesystem::file_size(segment_path);
+
+    auto *segment_bytes = new uint8_t[segment_size];
+    std::ifstream in_file(segment_path.string().c_str(), std::ios::beg | std::ios::binary);
+    in_file.seekg(4); // segments have 4 byte length header
+    in_file.read(reinterpret_cast<char *>(segment_bytes), segment_size);
+    in_file.close();
+
+    segments.push_back(segment_bytes);
+  }
 
   if (!std::experimental::filesystem::exists(kInputFile))
   {
@@ -254,23 +306,28 @@ int main()
   std::size_t out_buff_size;
 
   ConversionOptions conversion_options;
-  conversion_options.conversionType = crnlib::texture_file_types::cFormatPNG;
+  conversion_options.conversionType = crnlib::texture_file_types::cFormatDDS;
 
   ConvertCrnInMemory(
     crn_bytes_partial,
     file_size,
     conversion_options,
-    nullptr,
+    &segments[0],
     num_segments,
     &out_buff,
     &out_buff_size
   );
 
-  std::ofstream out_file_png("out22.png", std::ios::binary);
+  std::ofstream out_file_png("out22.dds", std::ios::binary);
   out_file_png.write(reinterpret_cast<char *>(out_buff), out_buff_size);
   out_file_png.close();
 
   FreeMemory(out_buff);
+
+  for (const auto& segment : segments)
+  {
+    delete[] segment;
+  }
 
   return 0;
 }
