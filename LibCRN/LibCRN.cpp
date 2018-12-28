@@ -26,13 +26,15 @@ bool convert_file(
   texture_file_types::format out_file_type
 );
 
-bool convert_file_segmented(const uint8_t *in_buff,
-  const std::size_t in_buff_size,
-  uint8_t **out_buff,
-  std::size_t &out_buff_size,
+bool convert_file_segmented(
+  const uint8_t *in_buff,
+  std::size_t in_buff_size,
   texture_file_types::format out_file_type,
-  uint8_t **segments,
-  std::size_t num_segments
+  std::size_t num_level_segments,
+  const uint8_t *level_segment_bytes,
+  const std::size_t level_segment_bytes_size,
+  uint8_t **out_buff,
+  std::size_t &out_buff_size
 );
 
 enum class MemoryType {
@@ -74,39 +76,41 @@ const char *GetError()
 }
 
 bool ConvertCrnInMemory(
-  _In_ const uint8_t *inCrnBytes,
-  _In_ std::size_t inCrnBytesSize,
-  _In_ ConversionOptions options,
-  _In_opt_ uint8_t **levels,
-  _In_ std::size_t numLevels,
-  _Out_opt_ uint8_t **outBuff,
-  _Out_opt_ std::size_t* outBuffSize
+  _In_ const uint8_t *in_buff,
+  _In_ const std::size_t in_buff_size,
+  _In_ const ConversionOptions options,
+  _In_ const std::size_t num_level_segments,
+  _In_opt_ const uint8_t *level_segment_bytes,
+  _In_opt_  const std::size_t level_segment_bytes_size,
+  _Out_opt_ uint8_t **out_buff,
+  _Out_opt_ std::size_t* out_buff_size
 )
 {
   console::disable_output();
 
-  auto crn_header = crnd::crnd_get_header(inCrnBytes, inCrnBytesSize);
+  auto crn_header = crnd::crnd_get_header(in_buff, in_buff_size);
   auto format = static_cast<texture_file_types::format>(options.conversionType);
 
   if (crn_header->m_flags & crnd::cCRNHeaderFlagSegmented)
   {
     return convert_file_segmented(
-      inCrnBytes,
-      inCrnBytesSize,
-      outBuff,
-      *outBuffSize,
+      in_buff,
+      in_buff_size,
       format,
-      levels,
-      numLevels
+      num_level_segments,
+      level_segment_bytes,
+      level_segment_bytes_size,
+      out_buff,
+      *out_buff_size
     );
   }
   else
   {
     return convert_file(
-      inCrnBytes,
-      inCrnBytesSize,
-      outBuff,
-      *outBuffSize,
+      in_buff,
+      in_buff_size,
+      out_buff,
+      *out_buff_size,
       format
     );
   }
@@ -159,12 +163,14 @@ bool convert_file(const uint8_t *in_buff, const std::size_t in_buff_size, uint8_
 
 bool convert_file_segmented(
   const uint8_t *in_buff,
-  const std::size_t in_buff_size,
-  uint8_t **out_buff,
-  std::size_t &out_buff_size,
+  std::size_t in_buff_size,
   texture_file_types::format out_file_type,
-  uint8_t **level_segments,
-  std::size_t num_level_segments)
+  std::size_t num_level_segments,
+  const uint8_t *level_segment_bytes,
+  const std::size_t level_segment_bytes_size,
+  uint8_t **out_buff,
+  std::size_t &out_buff_size
+)
 {
   auto crn_header = crnd::crnd_get_header(in_buff, in_buff_size);
   auto header_size = static_cast<uint>(crn_header->m_data_size);
@@ -198,21 +204,11 @@ bool convert_file_segmented(
   complete_crn_bytes_ptr += static_cast<uint>(crn_header->m_level_ofs[num_level_segments]);
   memcpy(complete_crn_bytes_ptr, in_buff + header_size, in_buff_size - header_size);
 
-  // Replace zeroed out levels with user supplied level segment data
-  if (level_segments != nullptr)
+  // Replace zeroed out levels with user supplied level segment bytes
+  if (level_segment_bytes != nullptr)
   {
-    for (std::size_t level = 0; level < num_level_segments; ++level)
-    {
-      if (level_segments[level] != nullptr)
-      {
-        auto level_offset = static_cast<uint>(crn_header->m_level_ofs[level]);
-        auto level_size = segment_sizes[level];
-
-        memcpy(&complete_crn_bytes[level_offset], level_segments[level], level_size);
-      }
-    }
-
-    // Just assume if level segments were supplied we're going to be exporting the highest level
+    auto level_offset = static_cast<uint>(crn_header->m_level_ofs[0]);
+    memcpy(&complete_crn_bytes[level_offset], level_segment_bytes, level_segment_bytes_size);
     level_to_export = 0;
   }
 
@@ -267,7 +263,22 @@ int main()
     "a5.crn",
   };
 
-  std::vector<uint8_t *> segments;
+  std::size_t level_segment_bytes_length = 0;
+  for (const auto &segment_file : kLevelSegmentNames)
+  {
+    if (!std::experimental::filesystem::exists(segment_file))
+    {
+      printf("Missing segment file %s\n", segment_file.c_str());
+      return 1;
+    }
+
+    std::experimental::filesystem::path segment_path(segment_file);
+    level_segment_bytes_length += std::experimental::filesystem::file_size(segment_path) - 4;
+  }
+
+  std::vector<uint8_t> level_segment_bytes(level_segment_bytes_length);
+  auto level_segment_bytes_ptr = &level_segment_bytes[0];
+
   for (const auto &segment_file: kLevelSegmentNames)
   {
     if (!std::experimental::filesystem::exists(segment_file))
@@ -277,15 +288,14 @@ int main()
     }
 
     std::experimental::filesystem::path segment_path(segment_file);
-    const auto segment_size = std::experimental::filesystem::file_size(segment_path);
+    const auto segment_size = std::experimental::filesystem::file_size(segment_path) - 4;
 
-    auto *segment_bytes = new uint8_t[segment_size];
     std::ifstream in_file(segment_path.string().c_str(), std::ios::beg | std::ios::binary);
     in_file.seekg(4); // segments have 4 byte length header
-    in_file.read(reinterpret_cast<char *>(segment_bytes), segment_size);
+    in_file.read(reinterpret_cast<char *>(level_segment_bytes_ptr), segment_size);
     in_file.close();
 
-    segments.push_back(segment_bytes);
+    level_segment_bytes_ptr += segment_size;
   }
 
   if (!std::experimental::filesystem::exists(kInputFile))
@@ -312,22 +322,18 @@ int main()
     crn_bytes_partial,
     file_size,
     conversion_options,
-    &segments[0],
     num_segments,
+    &level_segment_bytes[0],
+    level_segment_bytes.size(),
     &out_buff,
     &out_buff_size
   );
 
-  std::ofstream out_file_png("out22.dds", std::ios::binary);
+  std::ofstream out_file_png("out222.dds", std::ios::binary);
   out_file_png.write(reinterpret_cast<char *>(out_buff), out_buff_size);
   out_file_png.close();
 
   FreeMemory(out_buff);
-
-  for (const auto& segment : segments)
-  {
-    delete[] segment;
-  }
 
   return 0;
 }
