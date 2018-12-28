@@ -92,7 +92,7 @@
       <PreprocessorDefinitions>_DEBUG;LIBCRN_EXPORTS;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <AdditionalIncludeDirectories>$(SolutionDir)\ThirdParty\crunch\inc;$(SolutionDir)\ThirdParty\crunch\crnlib;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <AdditionalOptions>/D "CONSOLE_DEBUG" %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/D "CONSOLE_DEBUG"  /D "_CRT_SECURE_NO_WARNINGS" %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <GenerateDebugInformation>true</GenerateDebugInformation>

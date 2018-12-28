@@ -27,6 +27,7 @@ Global
 		{08ACFC9B-2B9B-4555-BDF6-BFFFEC6FA436}.Console_Debug|x64.ActiveCfg = Console_Debug|x64
 		{08ACFC9B-2B9B-4555-BDF6-BFFFEC6FA436}.Console_Debug|x64.Build.0 = Console_Debug|x64
 		{08ACFC9B-2B9B-4555-BDF6-BFFFEC6FA436}.Console_Debug|x86.ActiveCfg = Console_Debug|x64
+		{08ACFC9B-2B9B-4555-BDF6-BFFFEC6FA436}.Console_Debug|x86.Build.0 = Console_Debug|x64
 		{08ACFC9B-2B9B-4555-BDF6-BFFFEC6FA436}.Debug_DLL|x64.ActiveCfg = Debug|x64
 		{08ACFC9B-2B9B-4555-BDF6-BFFFEC6FA436}.Debug_DLL|x64.Build.0 = Debug|x64
 		{08ACFC9B-2B9B-4555-BDF6-BFFFEC6FA436}.Debug_DLL|x86.ActiveCfg = Release|x64
@@ -43,7 +44,8 @@ Global
 		{08ACFC9B-2B9B-4555-BDF6-BFFFEC6FA436}.Release|x86.ActiveCfg = Release|x64
 		{CF2E70E8-7133-4D96-92C7-68BB406C0664}.Console_Debug|x64.ActiveCfg = Console_Debug|x64
 		{CF2E70E8-7133-4D96-92C7-68BB406C0664}.Console_Debug|x64.Build.0 = Console_Debug|x64
-		{CF2E70E8-7133-4D96-92C7-68BB406C0664}.Console_Debug|x86.ActiveCfg = Console_Debug|x64
+		{CF2E70E8-7133-4D96-92C7-68BB406C0664}.Console_Debug|x86.ActiveCfg = Release|x64
+		{CF2E70E8-7133-4D96-92C7-68BB406C0664}.Console_Debug|x86.Build.0 = Release|x64
 		{CF2E70E8-7133-4D96-92C7-68BB406C0664}.Debug_DLL|x64.ActiveCfg = Debug|x64
 		{CF2E70E8-7133-4D96-92C7-68BB406C0664}.Debug_DLL|x64.Build.0 = Debug|x64
 		{CF2E70E8-7133-4D96-92C7-68BB406C0664}.Debug_DLL|x86.ActiveCfg = Release|x64
