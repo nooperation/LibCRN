@@ -165,7 +165,7 @@ bool convert_file_segmented(
   const uint8_t *in_buff,
   std::size_t in_buff_size,
   texture_file_types::format out_file_type,
-  std::size_t num_level_segments,
+  std::size_t num_external_levels,
   const uint8_t *level_segment_bytes,
   const std::size_t level_segment_bytes_size,
   uint8_t **out_buff,
@@ -174,25 +174,19 @@ bool convert_file_segmented(
 {
   auto crn_header = crnd::crnd_get_header(in_buff, in_buff_size);
   auto header_size = static_cast<uint>(crn_header->m_data_size);
-  auto level_to_export = num_level_segments;
-
-
-  if (num_level_segments >= static_cast<uint>(crn_header->m_levels))
-  {
-    printf("All mip levels are segments. This cannot be recovered.\n");
-    return false;
-  }
-
-  // Determine the real size of the crn, including space for missing levels
+  
   auto total_size = in_buff_size;
-  auto last_offset = static_cast<uint>(crn_header->m_level_ofs[0]);
-  std::vector<std::size_t> segment_sizes;
-  for (std::size_t level = 1; level < (num_level_segments + 1); ++level)
+  auto num_levels = static_cast<uint>(crn_header->m_levels);
+  for (auto i = 0; i < num_external_levels; ++i)
   {
-    auto previous_level_size = static_cast<uint>(crn_header->m_level_ofs[level]) - last_offset;
-    segment_sizes.push_back(previous_level_size);
-    total_size += previous_level_size;
-    last_offset = static_cast<uint>(crn_header->m_level_ofs[level]);
+    crnd::crn_level_info level_info;
+    if (!crnd::crnd_get_level_info(in_buff, in_buff_size, i, &level_info))
+    {
+      return 0;
+    }
+
+    size_t size = level_info.m_blocks_x * level_info.m_blocks_y * level_info.m_bytes_per_block;
+    total_size += size;
   }
 
   // Add zero-filled space where missing segments should exist
@@ -201,7 +195,7 @@ bool convert_file_segmented(
 
   memset(complete_crn_bytes_ptr, 0, total_size);
   memcpy(complete_crn_bytes_ptr, in_buff, header_size);
-  complete_crn_bytes_ptr += static_cast<uint>(crn_header->m_level_ofs[num_level_segments]);
+  complete_crn_bytes_ptr += static_cast<uint>(crn_header->m_level_ofs[num_external_levels]);
   memcpy(complete_crn_bytes_ptr, in_buff + header_size, in_buff_size - header_size);
 
   // Replace zeroed out levels with user supplied level segment bytes
@@ -209,7 +203,6 @@ bool convert_file_segmented(
   {
     auto level_offset = static_cast<uint>(crn_header->m_level_ofs[0]);
     memcpy(&complete_crn_bytes[level_offset], level_segment_bytes, level_segment_bytes_size);
-    level_to_export = 0;
   }
 
   // Read the new crn, which contains zero fill for missing levels
@@ -222,19 +215,19 @@ bool convert_file_segmented(
 
   auto is_successful = tex.write_to_memory(
     out_buff,
-    out_buff_size, 
+    out_buff_size,
     out_file_type,
     nullptr,
     nullptr,
     nullptr,
     0,
-    level_to_export
+    0
   );
 
   if (!is_successful) {
     return false;
   }
-  
+
   {
     std::lock_guard<std::mutex> lock(memoryMapMutex);
     memoryMap[*out_buff] = MemoryType::kMemoryType_Array;
@@ -250,30 +243,28 @@ bool convert_file_segmented(
 #include <cstdint>
 #include <fstream>
 
-
 int main()
 {
-  static const int num_segments = 5;
   static const std::string kInputFile = "a.crn";
   static const std::vector<std::string> kLevelSegmentNames = {
     "a1.crn",
     "a2.crn",
     "a3.crn",
-    "a4.crn",
-    "a5.crn",
+  //  "a4.crn",
+  //  "a5.crn",
   };
 
   std::size_t level_segment_bytes_length = 0;
-  for (const auto &segment_file : kLevelSegmentNames)
+  for (const auto &segment_file: kLevelSegmentNames)
   {
-    if (!std::experimental::filesystem::exists(segment_file))
+    if (!std::filesystem::exists(segment_file))
     {
       printf("Missing segment file %s\n", segment_file.c_str());
       return 1;
     }
 
-    std::experimental::filesystem::path segment_path(segment_file);
-    level_segment_bytes_length += std::experimental::filesystem::file_size(segment_path) - 4;
+    std::filesystem::path segment_path(segment_file);
+    level_segment_bytes_length += std::filesystem::file_size(segment_path) - 4;
   }
 
   std::vector<uint8_t> level_segment_bytes(level_segment_bytes_length);
@@ -281,14 +272,14 @@ int main()
 
   for (const auto &segment_file: kLevelSegmentNames)
   {
-    if (!std::experimental::filesystem::exists(segment_file))
+    if (!std::filesystem::exists(segment_file))
     {
       printf("Missing segment file %s\n", segment_file.c_str());
       return 1;
     }
 
-    std::experimental::filesystem::path segment_path(segment_file);
-    const auto segment_size = std::experimental::filesystem::file_size(segment_path) - 4;
+    std::filesystem::path segment_path(segment_file);
+    const auto segment_size = std::filesystem::file_size(segment_path) - 4;
 
     std::ifstream in_file(segment_path.string().c_str(), std::ios::beg | std::ios::binary);
     in_file.seekg(4); // segments have 4 byte length header
@@ -298,14 +289,14 @@ int main()
     level_segment_bytes_ptr += segment_size;
   }
 
-  if (!std::experimental::filesystem::exists(kInputFile))
+  if (!std::filesystem::exists(kInputFile))
   {
     printf("Missing file\n");
     return 1;
   }
 
-  std::experimental::filesystem::path crn_path(kInputFile);
-  const auto file_size = std::experimental::filesystem::file_size(crn_path);
+  std::filesystem::path crn_path(kInputFile);
+  const auto file_size = std::filesystem::file_size(crn_path);
 
   auto *crn_bytes_partial = new uint8_t[file_size];
   std::ifstream in_file(crn_path.string().c_str(), std::ios::beg | std::ios::binary);
@@ -322,7 +313,7 @@ int main()
     crn_bytes_partial,
     file_size,
     conversion_options,
-    num_segments,
+    kLevelSegmentNames.size(),
     &level_segment_bytes[0],
     level_segment_bytes.size(),
     &out_buff,
