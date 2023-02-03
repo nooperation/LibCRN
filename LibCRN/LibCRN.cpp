@@ -174,20 +174,7 @@ bool convert_file_segmented(
 {
   auto crn_header = crnd::crnd_get_header(in_buff, in_buff_size);
   auto header_size = static_cast<uint>(crn_header->m_data_size);
-  
-  auto total_size = in_buff_size;
-  auto num_levels = static_cast<uint>(crn_header->m_levels);
-  for (auto i = 0; i < num_external_levels; ++i)
-  {
-    crnd::crn_level_info level_info;
-    if (!crnd::crnd_get_level_info(in_buff, in_buff_size, i, &level_info))
-    {
-      return 0;
-    }
-
-    size_t size = level_info.m_blocks_x * level_info.m_blocks_y * level_info.m_bytes_per_block;
-    total_size += size;
-  }
+  auto total_size = in_buff_size + level_segment_bytes_size;
 
   // Add zero-filled space where missing segments should exist
   auto complete_crn_bytes = std::make_unique<uint8_t[]>(total_size);
@@ -264,7 +251,7 @@ int main()
     }
 
     std::filesystem::path segment_path(segment_file);
-    level_segment_bytes_length += std::filesystem::file_size(segment_path) - 4;
+    level_segment_bytes_length += std::filesystem::file_size(segment_path);
   }
 
   std::vector<uint8_t> level_segment_bytes(level_segment_bytes_length);
@@ -279,10 +266,9 @@ int main()
     }
 
     std::filesystem::path segment_path(segment_file);
-    const auto segment_size = std::filesystem::file_size(segment_path) - 4;
+    const auto segment_size = std::filesystem::file_size(segment_path);
 
     std::ifstream in_file(segment_path.string().c_str(), std::ios::beg | std::ios::binary);
-    in_file.seekg(4); // segments have 4 byte length header
     in_file.read(reinterpret_cast<char *>(level_segment_bytes_ptr), segment_size);
     in_file.close();
 
